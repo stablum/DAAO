@@ -1,7 +1,7 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's orientation sensors. Version **0.2.0** consists of:
+with the phone's orientation sensors. Version **0.2.1** consists of:
 
 - a Python 3.14 desktop receiver and Qt 6.11.1 GUI;
 - a private, native Android camera-and-orientation sender;
@@ -12,11 +12,11 @@ The Android app uses CameraX and Android's rotation-vector sensor. It calculates
 the azimuth of the rear camera's viewing direction and also sends elevation,
 pitch, roll, the full orientation quaternion, sensor accuracy, and timestamps.
 The extra pose data is retained in the protocol for future astronomical
-overlays even though version 0.2.0 displays only the camera and compass.
+overlays even though version 0.2.1 displays only the camera and compass.
 
 No paid application, cloud service, account, or Google Play publication is
-required. The private APK can be installed directly with Android Debug Bridge
-(ADB).
+required. The signed APK can be downloaded from GitHub and installed directly
+on the phone.
 
 ## Desktop requirements
 
@@ -52,6 +52,22 @@ http://192.168.1.100:8000/data
 The computer and phone must be on the same network. Allow Python to receive
 private-network traffic if the operating-system firewall asks.
 
+## Install the Android application from GitHub
+
+On the phone:
+
+1. Open the [latest DAAO release](https://github.com/TiagoCalvados/DAAO/releases/latest).
+2. Under **Assets**, download `DAAO-Camera-0.2.1.apk`.
+3. Open the download. If Android asks, allow the browser or file manager to
+   **Install unknown apps** / **Allow from this source**.
+4. Confirm **Install**, then open **DAAO Camera**.
+
+This is a free direct installation; Google Play and a developer account are not
+involved. Future APKs signed with the same DAAO release key can be installed as
+updates. If an older debug-signed DAAO Camera build is already installed,
+uninstall it once before installing the release APK because Android will not
+replace an app signed by a different key.
+
 ## Build the Android application
 
 The repository includes the Gradle wrapper, so Android Studio is not needed for
@@ -70,9 +86,25 @@ android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
 The debug APK is automatically signed with the computer's Android debug key.
-Updates must use the same signing key. Before distributing DAAO or registering
-its package name, create a separately backed-up release key and never commit
-that key or its password to Git.
+For an official signed release, set `DAAO_SIGNING_PROPERTIES` to a local
+properties file containing `storeFile`, `storePassword`, `keyAlias`, and
+`keyPassword`, then build:
+
+```powershell
+$env:DAAO_SIGNING_PROPERTIES = "$env:LOCALAPPDATA\DAAO\android-signing\keystore.properties"
+.\android\gradlew.bat -p .\android :app:assembleRelease
+```
+
+The signed output is:
+
+```text
+android\app\build\outputs\apk\release\app-release.apk
+```
+
+The official release key and password are deliberately outside this repository.
+The maintainer must back up both separately and never commit or upload either
+private file. Losing them would make it impossible to publish installable
+updates for the same Android application.
 
 ## Install with ADB
 
@@ -88,7 +120,7 @@ Then install or update DAAO:
 ```powershell
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb devices
-& $adb install -r .\android\app\build\outputs\apk\debug\app-debug.apk
+& $adb install -r .\android\app\build\outputs\apk\release\app-release.apk
 ```
 
 ADB installation does not require Google Play publication, Android developer
