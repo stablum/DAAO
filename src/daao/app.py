@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib.metadata import version
+import logging
 import socket
 import sys
 
@@ -7,7 +9,11 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from daao.gui import MainWindow
+from daao.logging_config import configure_logging
 from daao.server import SensorServer
+
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateBridge(QObject):
@@ -32,6 +38,9 @@ def local_ipv4_address() -> str:
 
 
 def main() -> int:
+    log_path = configure_logging()
+    logger.info("Starting DAAO version=%s log=%s", version("daao"), log_path)
+
     app = QApplication(sys.argv)
     app.setApplicationName("DIY Astronomical Attic Observatory")
     app.setOrganizationName("DAAO")
@@ -41,6 +50,7 @@ def main() -> int:
     try:
         server.start()
     except OSError as error:
+        logger.exception("Could not listen on port 8000")
         QMessageBox.critical(
             None,
             "DAAO could not start",
@@ -49,8 +59,11 @@ def main() -> int:
         return 1
 
     push_url = f"http://{local_ipv4_address()}:{server.port}/data"
+    logger.info("Sensor Logger push URL: %s", push_url)
     window = MainWindow(push_url=push_url)
     bridge.update_received.connect(window.apply_sensor_update)
     app.aboutToQuit.connect(server.stop)
     window.show()
-    return app.exec()
+    exit_code = app.exec()
+    logger.info("DAAO stopped exit_code=%d", exit_code)
+    return exit_code

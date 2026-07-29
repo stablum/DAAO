@@ -33,19 +33,28 @@ class ServerTests(unittest.TestCase):
                     ]
                 }
             ).encode()
-            connection.request(
-                "POST",
-                "/data",
-                body=body,
-                headers={"Content-Type": "application/json"},
-            )
-            response = connection.getresponse()
-            self.assertEqual(response.status, 200)
-            response.read()
+            with self.assertLogs("daao.server", level="INFO") as captured:
+                connection.request(
+                    "POST",
+                    "/data",
+                    body=body,
+                    headers={"Content-Type": "application/json"},
+                )
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
             connection.close()
 
             self.assertTrue(event.wait(1))
             self.assertEqual(received[0].heading, 270)
+            self.assertTrue(
+                any(
+                    "Accepted sensor update" in message
+                    and "readings=1" in message
+                    and "heading=270.0" in message
+                    for message in captured.output
+                )
+            )
 
     def test_rejects_wrong_endpoint(self) -> None:
         with SensorServer(host="127.0.0.1", port=0) as server:

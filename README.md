@@ -1,7 +1,7 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's sensor readings. Version **0.1.1** is the first desktop MVP:
+with the phone's sensor readings. Version **0.1.2** is the first desktop MVP:
 
 - Python 3.14
 - Qt 6.11.1 through the official PySide6 bindings
@@ -92,6 +92,19 @@ the receiver compatible with Sensor Logger's newer image streaming while its
 published schema is evolving. Requests are limited to 32 MiB.
 
 `GET /health` returns a small health response.
+
+## Diagnostic log
+
+DAAO keeps a rotating diagnostic log without saving request bodies or camera
+images. On Windows it is written to:
+
+```text
+%LOCALAPPDATA%\DAAO\logs\daao.log
+```
+
+Each request records its source, content type, size, response outcome, sensor
+reading count, and whether a compass heading or image was recognized. Set
+`DAAO_LOG_DIR` before starting DAAO to use another directory.
 
 ## Tests
 

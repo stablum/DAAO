@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import threading
 
 from daao.models import SensorUpdate
@@ -10,6 +11,7 @@ from daao.parsing import PayloadError, parse_http_payload
 
 
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
@@ -51,6 +53,7 @@ class SensorServer:
             daemon=True,
         )
         self._thread.start()
+        logger.info("HTTP receiver listening on %s:%d", self.host, self.port)
 
     def stop(self) -> None:
         httpd = self._httpd
@@ -63,14 +66,20 @@ class SensorServer:
         httpd.server_close()
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
+        logger.info("HTTP receiver stopped")
 
     def _make_handler(self) -> type[BaseHTTPRequestHandler]:
         receiver = self
 
         class SensorRequestHandler(BaseHTTPRequestHandler):
-            server_version = "DAAO/0.1.1"
+            server_version = "DAAO/0.1.2"
 
             def do_GET(self) -> None:
+                logger.info(
+                    "HTTP GET client=%s path=%s",
+                    self.client_address[0],
+                    self.path,
+                )
                 if self.path not in ("/", "/health"):
                     self._respond(404, {"status": "not found"})
                     return
@@ -84,35 +93,67 @@ class SensorServer:
                 )
 
             def do_POST(self) -> None:
+                client = self.client_address[0]
                 raw_length = self.headers.get("Content-Length")
+                content_type = self.headers.get("Content-Type", "application/json")
+                logger.info(
+                    "HTTP POST client=%s path=%s content_type=%s content_length=%s",
+                    client,
+                    self.path,
+                    content_type,
+                    raw_length,
+                )
                 if raw_length is None:
+                    logger.warning("Rejected POST client=%s: Content-Length required", client)
                     self._respond(411, {"status": "error", "message": "Content-Length required"})
                     return
                 try:
                     length = int(raw_length)
                 except ValueError:
+                    logger.warning("Rejected POST client=%s: invalid Content-Length", client)
                     self._respond(400, {"status": "error", "message": "invalid Content-Length"})
                     return
                 if length < 0 or length > receiver.max_request_bytes:
+                    logger.warning(
+                        "Rejected POST client=%s: request size %d outside allowed range",
+                        client,
+                        length,
+                    )
                     self._respond(413, {"status": "error", "message": "request too large"})
                     return
 
                 body = self.rfile.read(length)
                 if self.path.rstrip("/") != "/data":
+                    logger.warning("Rejected POST client=%s: unknown path %s", client, self.path)
                     self._respond(404, {"status": "not found"})
                     return
                 try:
                     update = parse_http_payload(
-                        self.headers.get("Content-Type", "application/json"),
+                        content_type,
                         body,
                     )
                     receiver.on_update(update)
                 except PayloadError as error:
+                    logger.warning("Rejected POST client=%s: %s", client, error)
                     self._respond(400, {"status": "error", "message": str(error)})
                     return
                 except Exception:
+                    logger.exception("Receiver error while processing POST client=%s", client)
                     self._respond(500, {"status": "error", "message": "receiver error"})
                     return
+                logger.info(
+                    "Accepted sensor update client=%s readings=%d heading=%s "
+                    "heading_accuracy=%s image_bytes=%d horizontal_fov=%s "
+                    "message_id=%s session_id=%s",
+                    client,
+                    update.reading_count,
+                    update.heading,
+                    update.heading_accuracy,
+                    len(update.image) if update.image is not None else 0,
+                    update.horizontal_fov,
+                    update.message_id,
+                    update.session_id,
+                )
                 self._respond(200, {"status": "success"})
 
             def _respond(self, status: int, payload: dict[str, object]) -> None:
