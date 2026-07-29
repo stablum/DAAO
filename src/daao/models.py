@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+
+@dataclass(frozen=True, slots=True)
+class SensorUpdate:
+    heading: float | None = None
+    heading_accuracy: float | None = None
+    image: bytes | None = None
+    image_timestamp_ns: int | None = None
+    horizontal_fov: float | None = None
+    message_id: int | None = None
+    session_id: str | None = None
+    device_id: str | None = None
+    reading_count: int = 0
+
+    def merged_with(self, newer: SensorUpdate) -> SensorUpdate:
+        """Merge independently transported parts of the same update."""
+        values = {}
+        for field in (
+            "heading",
+            "heading_accuracy",
+            "image",
+            "image_timestamp_ns",
+            "horizontal_fov",
+            "message_id",
+            "session_id",
+            "device_id",
+        ):
+            value = getattr(newer, field)
+            if value is not None:
+                values[field] = value
+        values["reading_count"] = self.reading_count + newer.reading_count
+        return replace(self, **values)

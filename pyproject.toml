@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=80.9"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "daao"
+version = "0.1.0"
+description = "DIY Astronomical Attic Observatory desktop receiver and overlay"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = {file = "LICENSE"}
+authors = [{name = "Tiago Calvados"}]
+dependencies = [
+    "PySide6==6.11.1",
+]
+
+[project.gui-scripts]
+daao = "daao.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+daao = ["py.typed"]
