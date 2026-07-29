@@ -81,7 +81,16 @@ class ParsingTests(unittest.TestCase):
     def test_multipart_json_and_image(self) -> None:
         boundary = "daao-test-boundary"
         json_part = json.dumps(
-            {"payload": [{"name": "compass", "values": {"magneticBearing": 90}}]}
+            {
+                "imageTimestampNs": 1_785_000_000_000_000_000,
+                "payload": [
+                    {"name": "compass", "values": {"magneticBearing": 90}},
+                    {
+                        "name": "camera",
+                        "values": {"horizontalFov": 74.0},
+                    },
+                ],
+            }
         ).encode()
         body = (
             f"--{boundary}\r\n"
@@ -95,6 +104,8 @@ class ParsingTests(unittest.TestCase):
         update = parse_http_payload(f"multipart/form-data; boundary={boundary}", body)
         self.assertEqual(update.heading, 90)
         self.assertEqual(update.image, PNG)
+        self.assertEqual(update.image_timestamp_ns, 1_785_000_000_000_000_000)
+        self.assertEqual(update.horizontal_fov, 74.0)
 
     def test_json_body(self) -> None:
         body = json.dumps(

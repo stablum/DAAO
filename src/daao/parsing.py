@@ -180,7 +180,9 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
     heading_accuracy = None
     heading_time = -1
     image = _top_level_image(metadata)
-    image_time = _integer(metadata.get("time")) if image is not None else None
+    image_time = _integer(metadata.get("imageTimestampNs"))
+    if image_time is None and image is not None:
+        image_time = _integer(metadata.get("time"))
     latest_image_time = image_time if image_time is not None else -1
     horizontal_fov = _first_number((metadata,), FOV_KEYS)
     reading_count = 0

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="space_black">#03070B</color>
+    <color name="panel">#D916232B</color>
+    <color name="cyan">#88F4FF</color>
+    <color name="amber">#FFCF5A</color>
+    <color name="white">#F3FAFC</color>
+    <color name="muted">#A9BBC4</color>
+</resources>

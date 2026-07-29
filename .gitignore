@@ -8,3 +8,13 @@ htmlcov/
 build/
 dist/
 *.log
+
+# Android local/build state
+android/.gradle/
+android/.kotlin/
+android/.idea/
+android/local.properties
+android/**/build/
+*.iml
+*.jks
+*.keystore

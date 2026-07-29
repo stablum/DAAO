@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DAAO Camera</string>
+    <string name="app_title">DIY Astronomical Attic Observatory</string>
+    <string name="server_url_hint">http://192.168.1.100:8000/data</string>
+    <string name="start_streaming">Start streaming</string>
+    <string name="stop_streaming">Stop streaming</string>
+    <string name="waiting_for_camera">Waiting for camera permission…</string>
+    <string name="waiting_for_orientation">Waiting for orientation sensor…</string>
+    <string name="no_orientation_sensor">No rotation-vector sensor is available.</string>
+    <string name="sensor_name">Sensor: %1$s</string>
+    <string name="orientation_readout">%1$s • elevation %2$+.1f°</string>
+</resources>
