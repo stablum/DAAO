@@ -68,7 +68,7 @@ class SensorServer:
         receiver = self
 
         class SensorRequestHandler(BaseHTTPRequestHandler):
-            server_version = "DAAO/0.1.0"
+            server_version = "DAAO/0.1.1"
 
             def do_GET(self) -> None:
                 if self.path not in ("/", "/health"):

@@ -1,7 +1,7 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's sensor readings. Version **0.1.0** is the first desktop MVP:
+with the phone's sensor readings. Version **0.1.1** is the first desktop MVP:
 
 - Python 3.14
 - Qt 6.11.1 through the official PySide6 bindings
@@ -11,19 +11,23 @@ with the phone's sensor readings. Version **0.1.0** is the first desktop MVP:
 
 ## Install
 
-Python 3.14 is required.
+Python 3.14 and [uv](https://docs.astral.sh/uv/) are required. On Windows, uv
+can be installed with:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
+winget install --id=astral-sh.uv -e
+```
+
+Create the locked project environment:
+
+```powershell
+uv sync --locked
 ```
 
 ## Run
 
 ```powershell
-python -m daao
+uv run --locked daao
 ```
 
 The status bar shows the URL to enter in Sensor Logger. It normally looks like:
@@ -92,8 +96,14 @@ published schema is evolving. Requests are limited to 32 MiB.
 ## Tests
 
 ```powershell
-python -m unittest discover -s tests -v
+uv run --locked python -m unittest discover -s tests -v
 ```
 
 The suite covers payload parsing, image decoding, compass wrap-around and
 projection, the HTTP endpoint, and a headless Qt widget smoke test.
+
+Build source and wheel distributions with:
+
+```powershell
+uv build
+```
