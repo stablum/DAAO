@@ -21,6 +21,7 @@ class GuiSmokeTests(unittest.TestCase):
 
     def test_widget_accepts_compass_state(self) -> None:
         widget = CameraCompassWidget()
+        self.assertIn("GPS", widget.sky_missing_inputs())
         widget.resize(800, 450)
         widget.set_heading(359.5, 2.0)
         widget.set_attitude(15.0, -12.0)

@@ -33,6 +33,18 @@ class ProjectedStar:
     azimuth_degrees: float
     x: float
     y: float
+    in_view: bool
+    direction_x: float
+    direction_y: float
+
+
+@dataclass(frozen=True, slots=True)
+class ViewportProjection:
+    x: float
+    y: float
+    in_view: bool
+    direction_x: float
+    direction_y: float
 
 
 # A compact naked-eye catalog of bright and navigational stars. Coordinates and
@@ -342,6 +354,29 @@ def project_horizontal(
     center_y: float,
 ) -> tuple[float, float] | None:
     """Project a local sky direction through a rolled pinhole camera."""
+    camera_x, camera_y, camera_z = _camera_components(
+        altitude_degrees,
+        azimuth_degrees,
+        camera_elevation_degrees,
+        camera_azimuth_degrees,
+        camera_roll_degrees,
+    )
+    if camera_z <= 0.0:
+        return None
+    return (
+        center_x + focal_pixels * camera_x / camera_z,
+        center_y - focal_pixels * camera_y / camera_z,
+    )
+
+
+def _camera_components(
+    altitude_degrees: float,
+    azimuth_degrees: float,
+    camera_elevation_degrees: float,
+    camera_azimuth_degrees: float,
+    camera_roll_degrees: float,
+) -> tuple[float, float, float]:
+    """Express a local sky direction in the rolled camera coordinate frame."""
     altitude = math.radians(altitude_degrees)
     azimuth = math.radians(azimuth_degrees)
     elevation = math.radians(camera_elevation_degrees)
@@ -375,15 +410,126 @@ def project_horizontal(
         for index in range(3)
     )
 
-    camera_x = sum(direction[index] * right[index] for index in range(3))
-    camera_y = sum(direction[index] * up[index] for index in range(3))
-    camera_z = sum(direction[index] * forward[index] for index in range(3))
-    if camera_z <= 0.0:
-        return None
     return (
-        center_x + focal_pixels * camera_x / camera_z,
-        center_y - focal_pixels * camera_y / camera_z,
+        sum(direction[index] * right[index] for index in range(3)),
+        sum(direction[index] * up[index] for index in range(3)),
+        sum(direction[index] * forward[index] for index in range(3)),
     )
+
+
+def project_horizontal_to_viewport(
+    altitude_degrees: float,
+    azimuth_degrees: float,
+    camera_elevation_degrees: float,
+    camera_azimuth_degrees: float,
+    camera_roll_degrees: float,
+    focal_pixels: float,
+    viewport_width: float,
+    viewport_height: float,
+    edge_margin_pixels: float = 28.0,
+) -> ViewportProjection:
+    """Project a direction into the view or onto an oriented viewport edge."""
+    camera_x, camera_y, camera_z = _camera_components(
+        altitude_degrees,
+        azimuth_degrees,
+        camera_elevation_degrees,
+        camera_azimuth_degrees,
+        camera_roll_degrees,
+    )
+    center_x = viewport_width / 2.0
+    center_y = viewport_height / 2.0
+    if camera_z > 0.0:
+        x = center_x + focal_pixels * camera_x / camera_z
+        y = center_y - focal_pixels * camera_y / camera_z
+        if 0.0 <= x <= viewport_width and 0.0 <= y <= viewport_height:
+            return ViewportProjection(x, y, True, 0.0, 0.0)
+
+    # Angular displacement gives a stable chase direction even for an object
+    # behind the camera, where ordinary pinhole projection is undefined.
+    horizontal_angle = math.atan2(camera_x, camera_z)
+    vertical_angle = math.atan2(camera_y, math.hypot(camera_x, camera_z))
+    horizontal_half_fov = math.atan(viewport_width / (2.0 * focal_pixels))
+    vertical_half_fov = math.atan(viewport_height / (2.0 * focal_pixels))
+    direction_x = horizontal_angle / max(horizontal_half_fov, 1e-9)
+    direction_y = -vertical_angle / max(vertical_half_fov, 1e-9)
+    length = math.hypot(direction_x, direction_y)
+    if length < 1e-9:
+        direction_x = 1.0
+        direction_y = 0.0
+        length = 1.0
+
+    margin = min(
+        max(0.0, edge_margin_pixels),
+        max(0.0, center_x - 1.0),
+        max(0.0, center_y - 1.0),
+    )
+    safe_half_width = max(1.0, center_x - margin)
+    safe_half_height = max(1.0, center_y - margin)
+    scale = min(
+        safe_half_width / abs(direction_x) if abs(direction_x) > 1e-9 else math.inf,
+        safe_half_height / abs(direction_y) if abs(direction_y) > 1e-9 else math.inf,
+    )
+    return ViewportProjection(
+        x=center_x + direction_x * scale,
+        y=center_y + direction_y * scale,
+        in_view=False,
+        direction_x=direction_x / length,
+        direction_y=direction_y / length,
+    )
+
+
+def project_sky_objects(
+    *,
+    latitude_degrees: float,
+    longitude_degrees: float,
+    epoch_nanoseconds: int,
+    camera_elevation_degrees: float,
+    camera_azimuth_degrees: float,
+    camera_roll_degrees: float,
+    focal_pixels: float,
+    viewport_width: float,
+    viewport_height: float,
+    catalog: tuple[Star, ...] | None = None,
+    edge_margin_pixels: float = 28.0,
+) -> list[ProjectedStar]:
+    """Project all above-horizon objects into the view or onto its border."""
+    date = julian_date(epoch_nanoseconds)
+    result: list[ProjectedStar] = []
+    objects = catalog if catalog is not None else BRIGHT_STARS + solar_system_objects(date)
+    for star in objects:
+        horizontal = equatorial_to_horizontal(
+            star.right_ascension_degrees,
+            star.declination_degrees,
+            latitude_degrees,
+            longitude_degrees,
+            date,
+        )
+        if horizontal.altitude_degrees < 0.0:
+            continue
+        projection = project_horizontal_to_viewport(
+            horizontal.altitude_degrees,
+            horizontal.azimuth_degrees,
+            camera_elevation_degrees,
+            camera_azimuth_degrees,
+            camera_roll_degrees,
+            focal_pixels,
+            viewport_width,
+            viewport_height,
+            edge_margin_pixels,
+        )
+        result.append(
+            ProjectedStar(
+                star=star,
+                altitude_degrees=horizontal.altitude_degrees,
+                azimuth_degrees=horizontal.azimuth_degrees,
+                x=projection.x,
+                y=projection.y,
+                in_view=projection.in_view,
+                direction_x=projection.direction_x,
+                direction_y=projection.direction_y,
+            )
+        )
+    return sorted(result, key=lambda item: item.star.magnitude)
 
 
 def project_visible_stars(
@@ -399,41 +545,20 @@ def project_visible_stars(
     viewport_height: float,
     catalog: tuple[Star, ...] | None = None,
 ) -> list[ProjectedStar]:
-    """Return visible named stars, planets, and the Sun inside the viewport."""
-    date = julian_date(epoch_nanoseconds)
-    result: list[ProjectedStar] = []
-    objects = catalog if catalog is not None else BRIGHT_STARS + solar_system_objects(date)
-    for star in objects:
-        horizontal = equatorial_to_horizontal(
-            star.right_ascension_degrees,
-            star.declination_degrees,
-            latitude_degrees,
-            longitude_degrees,
-            date,
+    """Return only objects that project inside the viewport."""
+    return [
+        item
+        for item in project_sky_objects(
+            latitude_degrees=latitude_degrees,
+            longitude_degrees=longitude_degrees,
+            epoch_nanoseconds=epoch_nanoseconds,
+            camera_elevation_degrees=camera_elevation_degrees,
+            camera_azimuth_degrees=camera_azimuth_degrees,
+            camera_roll_degrees=camera_roll_degrees,
+            focal_pixels=focal_pixels,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            catalog=catalog,
         )
-        if horizontal.altitude_degrees < 0.0:
-            continue
-        point = project_horizontal(
-            horizontal.altitude_degrees,
-            horizontal.azimuth_degrees,
-            camera_elevation_degrees,
-            camera_azimuth_degrees,
-            camera_roll_degrees,
-            focal_pixels,
-            viewport_width / 2.0,
-            viewport_height / 2.0,
-        )
-        if point is None:
-            continue
-        x, y = point
-        if 0.0 <= x <= viewport_width and 0.0 <= y <= viewport_height:
-            result.append(
-                ProjectedStar(
-                    star=star,
-                    altitude_degrees=horizontal.altitude_degrees,
-                    azimuth_degrees=horizontal.azimuth_degrees,
-                    x=x,
-                    y=y,
-                )
-            )
-    return sorted(result, key=lambda item: item.star.magnitude)
+        if item.in_view
+    ]

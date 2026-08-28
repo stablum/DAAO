@@ -1,14 +1,15 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's orientation sensors. Version **0.3.1** consists of:
+with the phone's orientation sensors. Version **0.3.2** consists of:
 
 - a Python 3.14 desktop receiver and Qt 6.11.1 GUI;
 - a private, native Android camera-and-orientation sender;
 - one synchronized HTTP update per second over the local network;
 - a perspective-correct magnetic compass tape over the camera image;
 - a camera attitude HUD with a horizon line, pitch ladder, and roll indicator;
-- a labeled overlay for 27 bright stars, the Sun, and the other seven planets.
+- a labeled overlay for 27 bright stars, the Sun, and the other seven planets;
+- labeled edge arrows for chasing above-horizon objects outside the camera view.
 
 The Android app uses CameraX and Android's rotation-vector sensor. It calculates
 the azimuth, elevation, and visual roll of the rear camera's viewing direction.
@@ -60,7 +61,7 @@ private-network traffic if the operating-system firewall asks.
 On the phone:
 
 1. Open the [latest DAAO release](https://github.com/TiagoCalvados/DAAO/releases/latest).
-2. Under **Assets**, download `DAAO-Camera-0.3.1.apk`.
+2. Under **Assets**, download `DAAO-Camera-0.3.2.apk`.
 3. Open the download. If Android asks, allow the browser or file manager to
    **Install unknown apps** / **Allow from this source**.
 4. Confirm **Install**, then open **DAAO Camera**.
@@ -169,6 +170,15 @@ and offline [JPL approximate planetary elements](https://ssd.jpl.nasa.gov/planet
 through the same pinhole-camera model as the HUD. No network ephemeris service is
 used. Sensor calibration and horizontal-FOV calibration will usually dominate
 the remaining label-position error.
+
+An object inside the camera view is marked at its calculated image position. An
+above-horizon object outside the view gets a labeled arrow near the appropriate
+screen edge. The arrow accounts for camera roll and continues to indicate the
+shortest screen-relative chase direction when the object is behind the phone.
+Labels are spread along each edge to remain readable. Objects below the horizon
+are omitted because reorienting the phone cannot make them observable. The
+desktop status bar reports how many objects are in view, how many have chase
+indicators, or which sensor input the sky overlay is waiting for.
 
 Magnetic heading and camera roll are mathematically undefined when the camera
 points exactly vertically; the transmitted quaternion remains valid in that

@@ -27,7 +27,7 @@ from daao import __version__
 from daao.attitude import pitch_ladder_marks
 from daao.compass import compass_marks, focal_length_pixels, project_delta_to_x
 from daao.models import SensorUpdate
-from daao.stars import ProjectedStar, project_visible_stars
+from daao.stars import ProjectedStar, project_sky_objects
 
 
 def overlay_font(point_size: int, weight: QFont.Weight) -> QFont:
@@ -61,6 +61,8 @@ class CameraCompassWidget(QLabel):
         self.longitude: float | None = None
         self.observation_timestamp_ns: int | None = None
         self.location_accuracy: float | None = None
+        self.sky_in_view_count = 0
+        self.sky_offscreen_count = 0
 
     def set_camera_image(self, data: bytes) -> bool:
         pixmap = QPixmap()
@@ -112,9 +114,11 @@ class CameraCompassWidget(QLabel):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         image_scale = self._draw_camera(painter)
-        self._draw_sky_objects(painter, image_scale)
+        sky_objects = self._project_sky_objects(image_scale)
+        self._draw_sky_objects(painter, sky_objects)
         self._draw_attitude(painter, image_scale)
         self._draw_compass(painter, image_scale)
+        self._draw_edge_indicators(painter, sky_objects)
         painter.end()
 
     def _draw_camera(self, painter: QPainter) -> float:
@@ -156,22 +160,15 @@ class CameraCompassWidget(QLabel):
             ) * image_scale
         return focal_length_pixels(width, self.horizontal_fov)
 
-    def _draw_sky_objects(self, painter: QPainter, image_scale: float) -> None:
-        if (
-            self._camera_pixmap is None
-            or self._camera_pixmap.isNull()
-            or self.true_heading is None
-            or self.camera_elevation is None
-            or self.camera_roll is None
-            or self.latitude is None
-            or self.longitude is None
-            or self.observation_timestamp_ns is None
-        ):
-            return
+    def _project_sky_objects(self, image_scale: float) -> list[ProjectedStar]:
+        if self.sky_missing_inputs():
+            self.sky_in_view_count = 0
+            self.sky_offscreen_count = 0
+            return []
 
         width = float(self.width())
         height = float(self.height())
-        objects = project_visible_stars(
+        objects = project_sky_objects(
             latitude_degrees=self.latitude,
             longitude_degrees=self.longitude,
             epoch_nanoseconds=self.observation_timestamp_ns,
@@ -182,9 +179,35 @@ class CameraCompassWidget(QLabel):
             viewport_width=width,
             viewport_height=height,
         )
+        self.sky_in_view_count = sum(item.in_view for item in objects)
+        self.sky_offscreen_count = len(objects) - self.sky_in_view_count
+        return objects
+
+    def sky_missing_inputs(self) -> tuple[str, ...]:
+        missing = []
+        if self._camera_pixmap is None or self._camera_pixmap.isNull():
+            missing.append("camera")
+        if self.latitude is None or self.longitude is None:
+            missing.append("GPS")
+        if self.true_heading is None:
+            missing.append("true north")
+        if self.camera_elevation is None or self.camera_roll is None:
+            missing.append("attitude")
+        if self.observation_timestamp_ns is None:
+            missing.append("frame time")
+        return tuple(missing)
+
+    def _draw_sky_objects(
+        self,
+        painter: QPainter,
+        objects: list[ProjectedStar],
+    ) -> None:
+        objects = [item for item in objects if item.in_view]
         if not objects:
             return
 
+        width = float(self.width())
+        height = float(self.height())
         painter.save()
         painter.setFont(overlay_font(9, QFont.Weight.Bold))
         metrics = painter.fontMetrics()
@@ -222,6 +245,166 @@ class CameraCompassWidget(QLabel):
             painter.setPen(color)
             painter.drawText(label, Qt.AlignmentFlag.AlignCenter, item.star.name)
         painter.restore()
+
+    def _draw_edge_indicators(
+        self,
+        painter: QPainter,
+        objects: list[ProjectedStar],
+    ) -> None:
+        objects = [item for item in objects if not item.in_view]
+        if not objects:
+            return
+
+        width = float(self.width())
+        height = float(self.height())
+        painter.save()
+        painter.setFont(overlay_font(8, QFont.Weight.Bold))
+        metrics = painter.fontMetrics()
+        label_specs: list[tuple[ProjectedStar, str, QRectF]] = []
+        for item in objects:
+            label_width = float(metrics.horizontalAdvance(item.star.name) + 14)
+            label_height = float(metrics.height() + 7)
+            side = self._indicator_side(item, width, height)
+            label_specs.append(
+                (
+                    item,
+                    side,
+                    self._edge_label_rect(
+                        item,
+                        side,
+                        label_width,
+                        label_height,
+                    ),
+                )
+            )
+
+        labels = self._layout_edge_labels(label_specs, width, height)
+        for item in objects:
+            color = self._sky_color(item)
+            label = labels[item]
+
+            arrow = QPointF(item.x, item.y)
+            label_center = label.center()
+            painter.setPen(QPen(QColor(0, 0, 0, 210), 4.5))
+            painter.drawLine(arrow, label_center)
+            painter.setPen(QPen(color.darker(130), 1.2))
+            painter.drawLine(arrow, label_center)
+
+            angle = math.degrees(math.atan2(item.direction_y, item.direction_x))
+            painter.save()
+            painter.translate(arrow)
+            painter.rotate(angle)
+            pointer = QPolygonF(
+                [
+                    QPointF(11.0, 0.0),
+                    QPointF(-5.0, -7.0),
+                    QPointF(-2.0, 0.0),
+                    QPointF(-5.0, 7.0),
+                ]
+            )
+            painter.setPen(QPen(QColor(0, 0, 0, 220), 5.0))
+            painter.setBrush(color)
+            painter.drawPolygon(pointer)
+            painter.setPen(QPen(color, 1.5))
+            painter.drawPolygon(pointer)
+            painter.restore()
+
+            painter.setBrush(QColor(0, 8, 14, 218))
+            painter.setPen(QPen(color, 1.1))
+            painter.drawRoundedRect(label, 4.0, 4.0)
+            painter.drawText(label, Qt.AlignmentFlag.AlignCenter, item.star.name)
+        painter.restore()
+
+    @staticmethod
+    def _indicator_side(
+        item: ProjectedStar,
+        width: float,
+        height: float,
+    ) -> str:
+        distances = {
+            "left": item.x,
+            "right": width - item.x,
+            "top": item.y,
+            "bottom": height - item.y,
+        }
+        return min(distances, key=distances.get)
+
+    @staticmethod
+    def _edge_label_rect(
+        item: ProjectedStar,
+        side: str,
+        label_width: float,
+        label_height: float,
+    ) -> QRectF:
+        gap = 17.0
+        if side == "left":
+            return QRectF(item.x + gap, item.y - label_height / 2.0, label_width, label_height)
+        if side == "right":
+            return QRectF(
+                item.x - gap - label_width,
+                item.y - label_height / 2.0,
+                label_width,
+                label_height,
+            )
+        if side == "top":
+            return QRectF(item.x - label_width / 2.0, item.y + gap, label_width, label_height)
+        return QRectF(
+            item.x - label_width / 2.0,
+            item.y - gap - label_height,
+            label_width,
+            label_height,
+        )
+
+    @staticmethod
+    def _layout_edge_labels(
+        specs: list[tuple[ProjectedStar, str, QRectF]],
+        width: float,
+        height: float,
+    ) -> dict[ProjectedStar, QRectF]:
+        result: dict[ProjectedStar, QRectF] = {}
+        for side in ("left", "right", "top", "bottom"):
+            horizontal = side in {"top", "bottom"}
+            group = [spec for spec in specs if spec[1] == side]
+            group.sort(key=lambda spec: spec[2].center().x() if horizontal else spec[2].center().y())
+            if not group:
+                continue
+
+            lower = 3.0
+            upper = (width if horizontal else height) - 3.0
+            sizes = [spec[2].width() if horizontal else spec[2].height() for spec in group]
+            desired = [
+                (spec[2].center().x() if horizontal else spec[2].center().y()) - size / 2.0
+                for spec, size in zip(group, sizes)
+            ]
+            starts: list[float] = []
+            for index, (position, size) in enumerate(zip(desired, sizes)):
+                start = max(lower, min(position, upper - size))
+                if index:
+                    start = max(start, starts[index - 1] + sizes[index - 1] + 4.0)
+                starts.append(start)
+
+            overflow = starts[-1] + sizes[-1] - upper
+            if overflow > 0.0:
+                starts[-1] -= overflow
+                for index in range(len(starts) - 2, -1, -1):
+                    starts[index] = min(
+                        starts[index],
+                        starts[index + 1] - sizes[index] - 4.0,
+                    )
+            if starts[0] < lower:
+                shift = lower - starts[0]
+                starts = [start + shift for start in starts]
+
+            for (item, _side, base), start in zip(group, starts):
+                label = QRectF(base)
+                if horizontal:
+                    label.moveLeft(start)
+                    label.moveTop(max(3.0, min(label.top(), height - label.height() - 3.0)))
+                else:
+                    label.moveTop(start)
+                    label.moveLeft(max(3.0, min(label.left(), width - label.width() - 3.0)))
+                result[item] = label
+        return result
 
     @staticmethod
     def _sky_color(item: ProjectedStar) -> QColor:
@@ -546,4 +729,12 @@ class MainWindow(QMainWindow):
             if self.viewer.location_accuracy is not None:
                 gps += f" ±{self.viewer.location_accuracy:.0f}m"
             detail += gps
+        missing = self.viewer.sky_missing_inputs()
+        if missing:
+            detail += f" · sky waiting for {', '.join(missing)}"
+        else:
+            detail += (
+                f" · sky {self.viewer.sky_in_view_count} in view, "
+                f"{self.viewer.sky_offscreen_count} chase"
+            )
         self.connection_label.setText(f"{state} · Sensor Logger URL: {self._push_url}{detail}")
