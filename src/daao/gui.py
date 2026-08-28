@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Slot
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontDatabase,
     QLinearGradient,
     QPainter,
     QPen,
@@ -22,13 +24,14 @@ from PySide6.QtWidgets import (
 )
 
 from daao import __version__
+from daao.attitude import pitch_ladder_marks
 from daao.compass import compass_marks, focal_length_pixels, project_delta_to_x
 from daao.models import SensorUpdate
 
 
 def overlay_font(point_size: int, weight: QFont.Weight) -> QFont:
     """Resolve a platform monospace font without assuming a family is installed."""
-    font = QFont()
+    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setPointSize(point_size)
     font.setWeight(weight)
@@ -37,6 +40,7 @@ def overlay_font(point_size: int, weight: QFont.Weight) -> QFont:
 
 class CameraCompassWidget(QLabel):
     TAPE_HEIGHT = 112
+    ROLL_SCALE_TICKS = (-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60)
 
     def __init__(self) -> None:
         super().__init__()
@@ -47,6 +51,8 @@ class CameraCompassWidget(QLabel):
         self._camera_pixmap: QPixmap | None = None
         self.heading: float | None = None
         self.heading_accuracy: float | None = None
+        self.camera_elevation: float | None = None
+        self.camera_roll: float | None = None
         self.horizontal_fov = 74.0
         self.bearing_offset = 0.0
 
@@ -63,12 +69,24 @@ class CameraCompassWidget(QLabel):
         self.heading_accuracy = accuracy
         self.update()
 
+    def set_attitude(
+        self,
+        camera_elevation: float | None,
+        camera_roll: float | None,
+    ) -> None:
+        if camera_elevation is not None:
+            self.camera_elevation = camera_elevation
+        if camera_roll is not None:
+            self.camera_roll = camera_roll
+        self.update()
+
     def paintEvent(self, event: object) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         image_scale = self._draw_camera(painter)
+        self._draw_attitude(painter, image_scale)
         self._draw_compass(painter, image_scale)
         painter.end()
 
@@ -103,6 +121,149 @@ class CameraCompassWidget(QLabel):
         painter.drawPixmap(target, self._camera_pixmap, QRectF(self._camera_pixmap.rect()))
         return scale
 
+    def _focal_pixels(self, width: float, image_scale: float) -> float:
+        if self._camera_pixmap is not None and not self._camera_pixmap.isNull():
+            return focal_length_pixels(
+                float(self._camera_pixmap.width()),
+                self.horizontal_fov,
+            ) * image_scale
+        return focal_length_pixels(width, self.horizontal_fov)
+
+    def _draw_attitude(self, painter: QPainter, image_scale: float) -> None:
+        if self.camera_elevation is None or self.camera_roll is None:
+            return
+
+        width = float(self.width())
+        height = float(self.height())
+        center_x = width / 2.0
+        center_y = height / 2.0
+        focal = self._focal_pixels(width, image_scale)
+        marks = pitch_ladder_marks(
+            self.camera_elevation,
+            focal,
+            math.hypot(width, height) * 0.75,
+        )
+
+        ladder_color = QColor("#a8ffc2")
+        horizon_color = QColor("#ffcf5a")
+        shadow_color = QColor(0, 0, 0, 190)
+        painter.save()
+        painter.translate(center_x, center_y)
+        painter.rotate(self.camera_roll)
+        painter.setFont(overlay_font(9, QFont.Weight.Bold))
+        metrics = painter.fontMetrics()
+
+        for mark in marks:
+            y = mark.offset_pixels
+            if mark.is_horizon:
+                half_length = min(width * 0.34, 360.0)
+                gap = 28.0
+                line_width = 2.8
+                color = horizon_color
+            else:
+                half_length = 104.0 if mark.is_major else 70.0
+                gap = 24.0
+                line_width = 2.0 if mark.is_major else 1.3
+                color = ladder_color
+
+            segments = (
+                (QPointF(-half_length, y), QPointF(-gap, y)),
+                (QPointF(gap, y), QPointF(half_length, y)),
+            )
+            painter.setPen(QPen(shadow_color, line_width + 3.0))
+            for start, end in segments:
+                painter.drawLine(start, end)
+            painter.setPen(QPen(color, line_width))
+            for start, end in segments:
+                painter.drawLine(start, end)
+
+            if mark.is_horizon:
+                painter.drawLine(
+                    QPointF(-half_length, y),
+                    QPointF(-half_length, y - 10.0),
+                )
+                painter.drawLine(
+                    QPointF(half_length, y),
+                    QPointF(half_length, y - 10.0),
+                )
+
+            if mark.is_major:
+                label_width = metrics.horizontalAdvance(mark.label) + 10.0
+                painter.setPen(QPen(shadow_color, 3.0))
+                for x in (-half_length - label_width - 7.0, half_length + 7.0):
+                    rect = QRectF(x, y - 11.0, label_width, 22.0)
+                    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, mark.label)
+                painter.setPen(color)
+                for x in (-half_length - label_width - 7.0, half_length + 7.0):
+                    rect = QRectF(x, y - 11.0, label_width, 22.0)
+                    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, mark.label)
+
+        painter.restore()
+        self._draw_roll_indicator(painter)
+
+    def _draw_roll_indicator(self, painter: QPainter) -> None:
+        if self.camera_roll is None:
+            return
+
+        center = QPointF(float(self.width()) / 2.0, float(self.TAPE_HEIGHT) + 80.0)
+        radius = 58.0
+        arc = QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            radius * 2.0,
+            radius * 2.0,
+        )
+        scale_color = QColor("#a8ffc2")
+        pointer_color = QColor("#ffcf5a")
+        shadow_color = QColor(0, 0, 0, 190)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(shadow_color, 4.5))
+        painter.drawArc(arc, 30 * 16, 120 * 16)
+        painter.setPen(QPen(scale_color, 1.5))
+        painter.drawArc(arc, 30 * 16, 120 * 16)
+
+        for tick in self.ROLL_SCALE_TICKS:
+            angle = math.radians(90.0 - tick)
+            outer = QPointF(
+                center.x() + radius * math.cos(angle),
+                center.y() - radius * math.sin(angle),
+            )
+            tick_length = 10.0 if tick in (-60, -30, 0, 30, 60) else 6.0
+            inner_radius = radius - tick_length
+            inner = QPointF(
+                center.x() + inner_radius * math.cos(angle),
+                center.y() - inner_radius * math.sin(angle),
+            )
+            painter.setPen(QPen(shadow_color, 4.0))
+            painter.drawLine(inner, outer)
+            painter.setPen(QPen(scale_color, 1.6 if tick else 2.4))
+            painter.drawLine(inner, outer)
+
+        displayed_roll = max(-60.0, min(60.0, self.camera_roll))
+        angle = math.radians(90.0 - displayed_roll)
+        direction = QPointF(math.cos(angle), -math.sin(angle))
+        perpendicular = QPointF(-direction.y(), direction.x())
+        tip = center + direction * (radius + 5.0)
+        base = center + direction * (radius - 8.0)
+        marker = QPolygonF(
+            [
+                tip,
+                base + perpendicular * 5.0,
+                base - perpendicular * 5.0,
+            ]
+        )
+        painter.setPen(QPen(shadow_color, 4.0))
+        painter.setBrush(pointer_color)
+        painter.drawPolygon(marker)
+        painter.setPen(pointer_color)
+        painter.setFont(overlay_font(9, QFont.Weight.Bold))
+        painter.drawText(
+            QRectF(center.x() - 95.0, center.y() + 8.0, 190.0, 22.0),
+            Qt.AlignmentFlag.AlignCenter,
+            f"ROLL {self.camera_roll:+05.1f}°",
+        )
+
     def _draw_compass(self, painter: QPainter, image_scale: float) -> None:
         width = float(self.width())
         gradient = QLinearGradient(0.0, 0.0, 0.0, float(self.TAPE_HEIGHT))
@@ -126,13 +287,7 @@ class CameraCompassWidget(QLabel):
             return
 
         display_heading = (self.heading + self.bearing_offset) % 360.0
-        if self._camera_pixmap is not None and not self._camera_pixmap.isNull():
-            focal = focal_length_pixels(
-                float(self._camera_pixmap.width()),
-                self.horizontal_fov,
-            ) * image_scale
-        else:
-            focal = focal_length_pixels(width, self.horizontal_fov)
+        focal = self._focal_pixels(width, image_scale)
 
         painter.setFont(overlay_font(10, QFont.Weight.DemiBold))
         metrics = painter.fontMetrics()
@@ -239,6 +394,8 @@ class MainWindow(QMainWindow):
         self._last_update_monotonic = time.monotonic()
         if update.heading is not None:
             self.viewer.set_heading(update.heading, update.heading_accuracy)
+        if update.camera_elevation is not None or update.camera_roll is not None:
+            self.viewer.set_attitude(update.camera_elevation, update.camera_roll)
         if update.image is not None and self.viewer.set_camera_image(update.image):
             self._last_image_time = update.image_timestamp_ns
         if update.horizontal_fov is not None:

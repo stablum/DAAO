@@ -27,7 +27,12 @@ class DaaoProtocolTest {
         )
         val snapshot = OrientationSnapshot(
             sensorTimestampNs = 123,
-            cameraPose = CameraPose(45.0, 30.0, 90.0),
+            cameraPose = CameraPose(
+                magneticBearingDegrees = 45.0,
+                elevationDegrees = 30.0,
+                deviceTopBearingDegrees = 90.0,
+                cameraRollDegrees = 12.0,
+            ),
             pitchDegrees = 1.0,
             rollDegrees = 2.0,
             quaternionW = 1.0,
@@ -45,6 +50,10 @@ class DaaoProtocolTest {
         assertEquals(789, document.getLong("imageTimestampNs"))
         assertEquals(45.0, payload.getJSONObject(0).getJSONObject("values")
             .getDouble("magneticBearing"), 0.0)
+        assertEquals(30.0, payload.getJSONObject(1).getJSONObject("values")
+            .getDouble("cameraElevation"), 0.0)
+        assertEquals(12.0, payload.getJSONObject(1).getJSONObject("values")
+            .getDouble("cameraRoll"), 0.0)
         assertEquals(74.0, payload.getJSONObject(2).getJSONObject("values")
             .getDouble("horizontalFov"), 0.0)
     }

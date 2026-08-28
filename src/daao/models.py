@@ -7,6 +7,8 @@ from dataclasses import dataclass, replace
 class SensorUpdate:
     heading: float | None = None
     heading_accuracy: float | None = None
+    camera_elevation: float | None = None
+    camera_roll: float | None = None
     image: bytes | None = None
     image_timestamp_ns: int | None = None
     horizontal_fov: float | None = None
@@ -21,6 +23,8 @@ class SensorUpdate:
         for field in (
             "heading",
             "heading_accuracy",
+            "camera_elevation",
+            "camera_roll",
             "image",
             "image_timestamp_ns",
             "horizontal_fov",

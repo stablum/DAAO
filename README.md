@@ -1,18 +1,19 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's orientation sensors. Version **0.2.2** consists of:
+with the phone's orientation sensors. Version **0.3.0** consists of:
 
 - a Python 3.14 desktop receiver and Qt 6.11.1 GUI;
 - a private, native Android camera-and-orientation sender;
 - one synchronized HTTP update per second over the local network;
-- a perspective-correct magnetic compass tape over the camera image.
+- a perspective-correct magnetic compass tape over the camera image;
+- a camera attitude HUD with a horizon line, pitch ladder, and roll indicator.
 
 The Android app uses CameraX and Android's rotation-vector sensor. It calculates
-the azimuth of the rear camera's viewing direction and also sends elevation,
-pitch, roll, the full orientation quaternion, sensor accuracy, and timestamps.
-The extra pose data is retained in the protocol for future astronomical
-overlays even though version 0.2.2 displays only the camera and compass.
+the azimuth, elevation, and visual roll of the rear camera's viewing direction.
+It also sends the raw device pitch and roll, full orientation quaternion, sensor
+accuracy, and timestamps. The desktop uses the camera-relative values to keep
+the attitude HUD aligned with the image.
 
 No paid application, cloud service, account, or Google Play publication is
 required. The signed APK can be downloaded from GitHub and installed directly
@@ -57,7 +58,7 @@ private-network traffic if the operating-system firewall asks.
 On the phone:
 
 1. Open the [latest DAAO release](https://github.com/TiagoCalvados/DAAO/releases/latest).
-2. Under **Assets**, download `DAAO-Camera-0.2.2.apk`.
+2. Under **Assets**, download `DAAO-Camera-0.3.0.apk`.
 3. Open the download. If Android asks, allow the browser or file manager to
    **Install unknown apps** / **Allow from this source**.
 4. Confirm **Install**, then open **DAAO Camera**.
@@ -145,8 +146,10 @@ when another app takes ownership of it or DAAO Camera is sent to the background.
 ## Compass calibration
 
 The center marker represents the magnetic azimuth of the rear camera's optical
-axis. Tape positions use pinhole-camera projection rather than a linear
-degrees-per-pixel approximation.
+axis. Compass and pitch-ladder positions use pinhole-camera projection rather
+than a linear degrees-per-pixel approximation. The gold horizon line marks zero
+elevation, while the green ladder marks five-degree elevation intervals and the
+roll scale shows camera rotation.
 
 The default horizontal field of view is 74 degrees, a practical starting value
 for the Galaxy S23+ Wide / 1x camera. Use the desktop **Horizontal FOV** control
@@ -155,9 +158,9 @@ measured magnetic or mounting offset.
 
 The reading is relative to magnetic north. Geographic declination, camera
 intrinsics, and star-coordinate transformation belong to a later astronomical
-overlay milestone. Magnetic heading is mathematically undefined when the
-camera points exactly vertically; the transmitted quaternion remains valid in
-that orientation.
+overlay milestone. Magnetic heading and camera roll are mathematically
+undefined when the camera points exactly vertically; the transmitted quaternion
+remains valid in that orientation.
 
 ## DAAO mobile protocol
 
@@ -190,6 +193,9 @@ The JSON uses the protocol identifier `daao-mobile-v1` and includes compatible
       "time": 1785000000000000000,
       "values": {
         "cameraElevation": 25.0,
+        "cameraRoll": 5.0,
+        "pitch": -65.0,
+        "roll": 5.0,
         "quaternionW": 1.0,
         "quaternionX": 0.0,
         "quaternionY": 0.0,
@@ -211,6 +217,8 @@ Requests are limited to 32 MiB. `GET /health` returns a small health response.
 
 The desktop receiver remains compatible with Sensor Logger JSON batches, raw
 `image/*` bodies, base64/data-URI camera fields, and multipart image requests.
+Orientation readings with generic `pitch` and `roll` fields are accepted as a
+fallback when camera-relative fields are unavailable.
 Sensor Logger 1.62 was observed to save camera images locally while omitting
 them from HTTP Push, which is why DAAO now has its own Android sender.
 

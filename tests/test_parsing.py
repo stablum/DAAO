@@ -43,6 +43,60 @@ class ParsingTests(unittest.TestCase):
         )
         self.assertEqual(update.heading, 20)
 
+    def test_camera_attitude_prefers_camera_relative_values(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "payload": [
+                    {
+                        "name": "orientation",
+                        "time": 100,
+                        "values": {
+                            "cameraElevation": 25.5,
+                            "pitch": 1.0,
+                            "cameraRoll": -12.5,
+                            "roll": 2.0,
+                        },
+                    }
+                ]
+            }
+        )
+        self.assertEqual(update.camera_elevation, 25.5)
+        self.assertEqual(update.camera_roll, -12.5)
+
+    def test_camera_attitude_falls_back_to_pitch_and_roll(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "payload": [
+                    {
+                        "name": "orientation",
+                        "values": {"pitch": -5.0, "roll": 190.0},
+                    }
+                ]
+            }
+        )
+        self.assertEqual(update.camera_elevation, -5.0)
+        self.assertEqual(update.camera_roll, -170.0)
+
+    def test_latest_camera_attitude_wins_when_batch_is_out_of_order(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "payload": [
+                    {
+                        "name": "orientation",
+                        "time": 200,
+                        "values": {"cameraElevation": 20.0, "cameraRoll": 10.0},
+                    },
+                    {
+                        "name": "orientation",
+                        "time": 100,
+                        "values": {"cameraElevation": 5.0, "cameraRoll": -5.0},
+                    },
+                ]
+            }
+        )
+        self.assertEqual(update.camera_elevation, 20.0)
+        self.assertEqual(update.camera_roll, 10.0)
+
     def test_location_bearing_is_not_compass_heading(self) -> None:
         update = parse_sensor_logger_message(
             {
@@ -89,6 +143,10 @@ class ParsingTests(unittest.TestCase):
                         "name": "camera",
                         "values": {"horizontalFov": 74.0},
                     },
+                    {
+                        "name": "orientation",
+                        "values": {"cameraElevation": 18.0, "cameraRoll": -7.0},
+                    },
                 ],
             }
         ).encode()
@@ -106,6 +164,8 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(update.image, PNG)
         self.assertEqual(update.image_timestamp_ns, 1_785_000_000_000_000_000)
         self.assertEqual(update.horizontal_fov, 74.0)
+        self.assertEqual(update.camera_elevation, 18.0)
+        self.assertEqual(update.camera_roll, -7.0)
 
     def test_json_body(self) -> None:
         body = json.dumps(

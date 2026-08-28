@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.Surface
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
@@ -49,6 +50,8 @@ class MainActivity : ComponentActivity() {
     private var streamingEndpoint: URI? = null
     private var nextFrameAtNs = 0L
     private var sentFrames = 0L
+    @Volatile
+    private var imageTargetRotationDegrees = 0
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -130,8 +133,16 @@ class MainActivity : ComponentActivity() {
             {
                 try {
                     val provider = providerFuture.get()
+                    val targetRotation = previewView.display.rotation
+                    imageTargetRotationDegrees = when (targetRotation) {
+                        Surface.ROTATION_0 -> 0
+                        Surface.ROTATION_90 -> 90
+                        Surface.ROTATION_180 -> 180
+                        Surface.ROTATION_270 -> 270
+                        else -> 0
+                    }
                     val preview = Preview.Builder()
-                        .setTargetRotation(previewView.display.rotation)
+                        .setTargetRotation(targetRotation)
                         .build()
                         .also { it.surfaceProvider = previewView.surfaceProvider }
                     val resolutionSelector = ResolutionSelector.Builder()
@@ -144,7 +155,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                     val analysis = ImageAnalysis.Builder()
                         .setResolutionSelector(resolutionSelector)
-                        .setTargetRotation(previewView.display.rotation)
+                        .setTargetRotation(targetRotation)
                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                         .setOutputImageRotationEnabled(true)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -191,6 +202,10 @@ class MainActivity : ComponentActivity() {
                 snapshot = snapshot,
                 capturedAtEpochNs = capturedAtEpochNs,
                 imageTimestampNs = capturedAtEpochNs,
+                cameraRollDegrees = OrientationMath.cameraRollForTarget(
+                    snapshot.cameraPose.cameraRollDegrees,
+                    imageTargetRotationDegrees,
+                ),
             )
             val multipart = DaaoProtocol.multipart(json, jpeg)
             val endpoint = streamingEndpoint

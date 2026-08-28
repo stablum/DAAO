@@ -18,6 +18,7 @@ class DaaoProtocol(
         snapshot: OrientationSnapshot,
         capturedAtEpochNs: Long,
         imageTimestampNs: Long,
+        cameraRollDegrees: Double? = snapshot.cameraPose.cameraRollDegrees,
     ): String {
         val compassValues = JSONObject()
         snapshot.cameraPose.magneticBearingDegrees?.let {
@@ -37,6 +38,9 @@ class DaaoProtocol(
             .put("quaternionZ", snapshot.quaternionZ)
             .put("sensorAccuracy", snapshot.sensorAccuracy)
             .put("sensorTimestampNs", snapshot.sensorTimestampNs)
+        cameraRollDegrees?.let {
+            orientationValues.put("cameraRoll", it)
+        }
         snapshot.cameraPose.deviceTopBearingDegrees?.let {
             orientationValues.put("deviceTopBearing", it)
         }

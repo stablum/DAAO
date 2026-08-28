@@ -9,6 +9,7 @@ import json
 import re
 from typing import Any
 
+from daao.attitude import normalize_roll
 from daao.compass import normalize_heading
 from daao.models import SensorUpdate
 
@@ -36,6 +37,17 @@ HEADING_KEYS = (
     "azimuth",
 )
 MAGNETIC_HEADING_KEYS = HEADING_KEYS[:3]
+CAMERA_ELEVATION_KEYS = (
+    "cameraElevation",
+    "camera_elevation",
+    "elevation",
+    "pitch",
+)
+CAMERA_ROLL_KEYS = (
+    "cameraRoll",
+    "camera_roll",
+    "roll",
+)
 FOV_KEYS = (
     "horizontalFov",
     "horizontalFOV",
@@ -179,6 +191,14 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
     heading = None
     heading_accuracy = None
     heading_time = -1
+    camera_elevation = _first_number((metadata,), CAMERA_ELEVATION_KEYS)
+    if camera_elevation is not None and not -90.0 <= camera_elevation <= 90.0:
+        camera_elevation = None
+    elevation_time = -1
+    camera_roll = _first_number((metadata,), CAMERA_ROLL_KEYS)
+    if camera_roll is not None:
+        camera_roll = normalize_roll(camera_roll)
+    roll_time = -1
     image = _top_level_image(metadata)
     image_time = _integer(metadata.get("imageTimestampNs"))
     if image_time is None and image is not None:
@@ -208,6 +228,32 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
                     ("headingAccuracy", "bearingAccuracy", "accuracy"),
                 )
 
+        is_orientation = (
+            name in {"orientation", "attitude", "rotation"}
+            or "orientation" in name
+            or "attitude" in name
+        )
+        if is_orientation:
+            candidate_elevation = _first_number(
+                (values, raw_reading),
+                CAMERA_ELEVATION_KEYS,
+            )
+            if (
+                candidate_elevation is not None
+                and -90.0 <= candidate_elevation <= 90.0
+                and ordering_time >= elevation_time
+            ):
+                camera_elevation = candidate_elevation
+                elevation_time = ordering_time
+
+            candidate_roll = _first_number(
+                (values, raw_reading),
+                CAMERA_ROLL_KEYS,
+            )
+            if candidate_roll is not None and ordering_time >= roll_time:
+                camera_roll = normalize_roll(candidate_roll)
+                roll_time = ordering_time
+
         is_camera = name in IMAGE_NAMES or "camera" in name or "image" in name
         candidate_image = _image_from_reading(raw_reading, is_camera)
         if candidate_image is not None and ordering_time >= latest_image_time:
@@ -225,6 +271,8 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
     return SensorUpdate(
         heading=heading,
         heading_accuracy=heading_accuracy,
+        camera_elevation=camera_elevation,
+        camera_roll=camera_roll,
         image=image,
         image_timestamp_ns=image_time,
         horizontal_fov=horizontal_fov,

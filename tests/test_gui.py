@@ -22,11 +22,14 @@ class GuiSmokeTests(unittest.TestCase):
         widget = CameraCompassWidget()
         widget.resize(800, 450)
         widget.set_heading(359.5, 2.0)
+        widget.set_attitude(15.0, -12.0)
         widget.horizontal_fov = 74.0
         widget.show()
         self.app.processEvents()
         self.assertEqual(widget.heading, 359.5)
         self.assertEqual(widget.heading_accuracy, 2.0)
+        self.assertEqual(widget.camera_elevation, 15.0)
+        self.assertEqual(widget.camera_roll, -12.0)
         self.assertFalse(widget.grab().toImage().isNull())
         widget.close()
 

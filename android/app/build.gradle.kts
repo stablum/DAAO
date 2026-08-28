@@ -39,8 +39,8 @@ android {
         applicationId = "com.tiagocalvados.daao"
         minSdk = 23
         targetSdk = 36
-        versionCode = 202
-        versionName = "0.2.2"
+        versionCode = 300
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
