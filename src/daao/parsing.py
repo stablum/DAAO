@@ -37,6 +37,25 @@ HEADING_KEYS = (
     "azimuth",
 )
 MAGNETIC_HEADING_KEYS = HEADING_KEYS[:3]
+TRUE_HEADING_KEYS = (
+    "trueBearing",
+    "true_bearing",
+    "trueHeading",
+    "true_heading",
+)
+LATITUDE_KEYS = ("latitude", "lat")
+LONGITUDE_KEYS = ("longitude", "lon", "lng")
+ALTITUDE_KEYS = ("altitude", "altitudeMeters", "altitude_meters")
+LOCATION_ACCURACY_KEYS = (
+    "horizontalAccuracy",
+    "locationAccuracy",
+    "accuracyMeters",
+)
+DECLINATION_KEYS = (
+    "magneticDeclination",
+    "magnetic_declination",
+    "declination",
+)
 CAMERA_ELEVATION_KEYS = (
     "cameraElevation",
     "camera_elevation",
@@ -189,6 +208,9 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
         raise PayloadError("JSON body must be an object or array")
 
     heading = None
+    true_heading = _first_number((metadata,), TRUE_HEADING_KEYS)
+    if true_heading is not None:
+        true_heading = normalize_heading(true_heading)
     heading_accuracy = None
     heading_time = -1
     camera_elevation = _first_number((metadata,), CAMERA_ELEVATION_KEYS)
@@ -205,6 +227,12 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
         image_time = _integer(metadata.get("time"))
     latest_image_time = image_time if image_time is not None else -1
     horizontal_fov = _first_number((metadata,), FOV_KEYS)
+    latitude = _first_number((metadata,), LATITUDE_KEYS)
+    longitude = _first_number((metadata,), LONGITUDE_KEYS)
+    altitude = _first_number((metadata,), ALTITUDE_KEYS)
+    location_accuracy = _first_number((metadata,), LOCATION_ACCURACY_KEYS)
+    magnetic_declination = _first_number((metadata,), DECLINATION_KEYS)
+    location_time = -1
     reading_count = 0
 
     for raw_reading in payload:
@@ -227,6 +255,12 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
                     (values, raw_reading),
                     ("headingAccuracy", "bearingAccuracy", "accuracy"),
                 )
+        candidate_true_heading = _first_number(
+            (values, raw_reading),
+            TRUE_HEADING_KEYS,
+        )
+        if candidate_true_heading is not None and ordering_time >= heading_time:
+            true_heading = normalize_heading(candidate_true_heading)
 
         is_orientation = (
             name in {"orientation", "attitude", "rotation"}
@@ -265,17 +299,60 @@ def parse_sensor_logger_message(document: Any) -> SensorUpdate:
         if candidate_fov is not None and 1.0 < candidate_fov < 179.0:
             horizontal_fov = candidate_fov
 
+        is_location = name in {"location", "gps", "position"} or "location" in name
+        if is_location and ordering_time >= location_time:
+            candidate_latitude = _first_number(
+                (values, raw_reading),
+                LATITUDE_KEYS,
+            )
+            candidate_longitude = _first_number(
+                (values, raw_reading),
+                LONGITUDE_KEYS,
+            )
+            if (
+                candidate_latitude is not None
+                and candidate_longitude is not None
+                and -90.0 <= candidate_latitude <= 90.0
+                and -180.0 <= candidate_longitude <= 180.0
+            ):
+                latitude = candidate_latitude
+                longitude = candidate_longitude
+                altitude = _first_number((values, raw_reading), ALTITUDE_KEYS)
+                location_accuracy = _first_number(
+                    (values, raw_reading),
+                    LOCATION_ACCURACY_KEYS,
+                )
+                magnetic_declination = _first_number(
+                    (values, raw_reading),
+                    DECLINATION_KEYS,
+                )
+                location_time = ordering_time
+
     if horizontal_fov is not None and not 1.0 < horizontal_fov < 179.0:
         horizontal_fov = None
+    if latitude is None or not -90.0 <= latitude <= 90.0:
+        latitude = None
+    if longitude is None or not -180.0 <= longitude <= 180.0:
+        longitude = None
+    if location_accuracy is not None and location_accuracy < 0.0:
+        location_accuracy = None
+    if true_heading is None and heading is not None and magnetic_declination is not None:
+        true_heading = normalize_heading(heading + magnetic_declination)
 
     return SensorUpdate(
         heading=heading,
+        true_heading=true_heading,
         heading_accuracy=heading_accuracy,
         camera_elevation=camera_elevation,
         camera_roll=camera_roll,
         image=image,
         image_timestamp_ns=image_time,
         horizontal_fov=horizontal_fov,
+        latitude=latitude,
+        longitude=longitude,
+        altitude=altitude,
+        location_accuracy=location_accuracy,
+        magnetic_declination=magnetic_declination,
         message_id=_integer(metadata.get("messageId")),
         session_id=_optional_string(metadata.get("sessionId")),
         device_id=_optional_string(metadata.get("deviceId")),

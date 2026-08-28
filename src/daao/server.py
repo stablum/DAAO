@@ -72,7 +72,7 @@ class SensorServer:
         receiver = self
 
         class SensorRequestHandler(BaseHTTPRequestHandler):
-            server_version = "DAAO/0.3.0"
+            server_version = "DAAO/0.3.1"
 
             def do_GET(self) -> None:
                 logger.info(
@@ -143,16 +143,20 @@ class SensorServer:
                     return
                 logger.info(
                     "Accepted sensor update client=%s readings=%d heading=%s "
-                    "heading_accuracy=%s elevation=%s roll=%s image_bytes=%d horizontal_fov=%s "
+                    "true_heading=%s heading_accuracy=%s elevation=%s roll=%s image_bytes=%d "
+                    "horizontal_fov=%s latitude=%s longitude=%s "
                     "message_id=%s session_id=%s",
                     client,
                     update.reading_count,
                     update.heading,
+                    update.true_heading,
                     update.heading_accuracy,
                     update.camera_elevation,
                     update.camera_roll,
                     len(update.image) if update.image is not None else 0,
                     update.horizontal_fov,
+                    update.latitude,
+                    update.longitude,
                     update.message_id,
                     update.session_id,
                 )

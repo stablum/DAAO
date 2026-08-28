@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private val sending = AtomicBoolean(false)
     private val orientationTracker by lazy { OrientationTracker(this) }
+    private val locationTracker by lazy { LocationTracker(this) }
     private val protocol by lazy {
         DaaoProtocol(deviceId = "${Build.MANUFACTURER} ${Build.MODEL}")
     }
@@ -57,8 +58,18 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 startCamera()
+                requestLocationIfNeeded()
             } else {
                 setStatus("Camera permission is required to stream images.")
+            }
+        }
+
+    private val requestLocationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (result.values.any { it }) {
+                locationTracker.start()
+            } else {
+                setStatus("Location permission was denied; the sky overlay will wait for GPS.")
             }
         }
 
@@ -105,6 +116,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             startCamera()
+            requestLocationIfNeeded()
         } else {
             requestCameraPermission.launch(Manifest.permission.CAMERA)
         }
@@ -113,10 +125,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         orientationTracker.start()
+        locationTracker.start()
     }
 
     override fun onPause() {
         orientationTracker.stop()
+        locationTracker.stop()
         super.onPause()
     }
 
@@ -178,6 +192,19 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun requestLocationIfNeeded() {
+        if (locationTracker.hasPermission) {
+            locationTracker.start()
+        } else {
+            requestLocationPermission.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+        }
+    }
+
     private fun analyzeFrame(image: ImageProxy) {
         try {
             if (!streaming) {
@@ -206,6 +233,7 @@ class MainActivity : ComponentActivity() {
                     snapshot.cameraPose.cameraRollDegrees,
                     imageTargetRotationDegrees,
                 ),
+                location = locationTracker.snapshot(),
             )
             val multipart = DaaoProtocol.multipart(json, jpeg)
             val endpoint = streamingEndpoint

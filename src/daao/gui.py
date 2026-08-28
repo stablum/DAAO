@@ -27,6 +27,7 @@ from daao import __version__
 from daao.attitude import pitch_ladder_marks
 from daao.compass import compass_marks, focal_length_pixels, project_delta_to_x
 from daao.models import SensorUpdate
+from daao.stars import ProjectedStar, project_visible_stars
 
 
 def overlay_font(point_size: int, weight: QFont.Weight) -> QFont:
@@ -50,11 +51,16 @@ class CameraCompassWidget(QLabel):
         self.setStyleSheet("background: #03070b;")
         self._camera_pixmap: QPixmap | None = None
         self.heading: float | None = None
+        self.true_heading: float | None = None
         self.heading_accuracy: float | None = None
         self.camera_elevation: float | None = None
         self.camera_roll: float | None = None
         self.horizontal_fov = 74.0
         self.bearing_offset = 0.0
+        self.latitude: float | None = None
+        self.longitude: float | None = None
+        self.observation_timestamp_ns: int | None = None
+        self.location_accuracy: float | None = None
 
     def set_camera_image(self, data: bytes) -> bool:
         pixmap = QPixmap()
@@ -80,12 +86,33 @@ class CameraCompassWidget(QLabel):
             self.camera_roll = camera_roll
         self.update()
 
+    def set_sky_context(
+        self,
+        true_heading: float | None,
+        latitude: float | None,
+        longitude: float | None,
+        observation_timestamp_ns: int | None,
+        location_accuracy: float | None = None,
+    ) -> None:
+        if true_heading is not None:
+            self.true_heading = true_heading
+        if latitude is not None:
+            self.latitude = latitude
+        if longitude is not None:
+            self.longitude = longitude
+        if observation_timestamp_ns is not None:
+            self.observation_timestamp_ns = observation_timestamp_ns
+        if location_accuracy is not None:
+            self.location_accuracy = location_accuracy
+        self.update()
+
     def paintEvent(self, event: object) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         image_scale = self._draw_camera(painter)
+        self._draw_sky_objects(painter, image_scale)
         self._draw_attitude(painter, image_scale)
         self._draw_compass(painter, image_scale)
         painter.end()
@@ -128,6 +155,100 @@ class CameraCompassWidget(QLabel):
                 self.horizontal_fov,
             ) * image_scale
         return focal_length_pixels(width, self.horizontal_fov)
+
+    def _draw_sky_objects(self, painter: QPainter, image_scale: float) -> None:
+        if (
+            self._camera_pixmap is None
+            or self._camera_pixmap.isNull()
+            or self.true_heading is None
+            or self.camera_elevation is None
+            or self.camera_roll is None
+            or self.latitude is None
+            or self.longitude is None
+            or self.observation_timestamp_ns is None
+        ):
+            return
+
+        width = float(self.width())
+        height = float(self.height())
+        objects = project_visible_stars(
+            latitude_degrees=self.latitude,
+            longitude_degrees=self.longitude,
+            epoch_nanoseconds=self.observation_timestamp_ns,
+            camera_elevation_degrees=self.camera_elevation,
+            camera_azimuth_degrees=(self.true_heading + self.bearing_offset) % 360.0,
+            camera_roll_degrees=self.camera_roll,
+            focal_pixels=self._focal_pixels(width, image_scale),
+            viewport_width=width,
+            viewport_height=height,
+        )
+        if not objects:
+            return
+
+        painter.save()
+        painter.setFont(overlay_font(9, QFont.Weight.Bold))
+        metrics = painter.fontMetrics()
+        placed_labels: list[QRectF] = []
+        for item in objects:
+            self._draw_sky_marker(painter, item)
+            label_width = float(metrics.horizontalAdvance(item.star.name) + 12)
+            label_height = float(metrics.height() + 5)
+            candidates = (
+                QRectF(item.x + 8.0, item.y - label_height - 5.0, label_width, label_height),
+                QRectF(item.x + 8.0, item.y + 5.0, label_width, label_height),
+                QRectF(item.x - label_width - 8.0, item.y - label_height - 5.0, label_width, label_height),
+                QRectF(item.x - label_width - 8.0, item.y + 5.0, label_width, label_height),
+            )
+            label = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.left() >= 3.0
+                    and candidate.right() <= width - 3.0
+                    and candidate.top() >= 3.0
+                    and candidate.bottom() <= height - 3.0
+                    and not any(candidate.intersects(existing) for existing in placed_labels)
+                ),
+                None,
+            )
+            if label is None:
+                label = QRectF(candidates[0])
+                label.moveLeft(max(3.0, min(label.left(), width - label_width - 3.0)))
+                label.moveTop(max(3.0, min(label.top(), height - label_height - 3.0)))
+            placed_labels.append(label.adjusted(-3.0, -2.0, 3.0, 2.0))
+            color = self._sky_color(item)
+            painter.setPen(QPen(QColor(0, 0, 0, 220), 3.0))
+            painter.drawText(label, Qt.AlignmentFlag.AlignCenter, item.star.name)
+            painter.setPen(color)
+            painter.drawText(label, Qt.AlignmentFlag.AlignCenter, item.star.name)
+        painter.restore()
+
+    @staticmethod
+    def _sky_color(item: ProjectedStar) -> QColor:
+        if item.star.kind == "sun":
+            return QColor("#ffd45d")
+        if item.star.kind == "planet":
+            return QColor("#ffae6b")
+        return QColor("#eaf6ff")
+
+    def _draw_sky_marker(self, painter: QPainter, item: ProjectedStar) -> None:
+        color = self._sky_color(item)
+        if item.star.kind == "sun":
+            radius = 7.0
+        elif item.star.kind == "planet":
+            radius = 4.2
+        else:
+            radius = max(2.2, min(5.5, 4.8 - 0.65 * (item.star.magnitude + 1.0)))
+        center = QPointF(item.x, item.y)
+        painter.setBrush(QColor(0, 0, 0, 160))
+        painter.setPen(QPen(QColor(0, 0, 0, 210), 4.0))
+        painter.drawEllipse(center, radius + 1.5, radius + 1.5)
+        painter.setBrush(color if item.star.kind != "planet" else Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(color, 2.0))
+        painter.drawEllipse(center, radius, radius)
+        if item.star.kind == "sun":
+            painter.drawLine(QPointF(item.x - 11.0, item.y), QPointF(item.x + 11.0, item.y))
+            painter.drawLine(QPointF(item.x, item.y - 11.0), QPointF(item.x, item.y + 11.0))
 
     def _draw_attitude(self, painter: QPainter, image_scale: float) -> None:
         if self.camera_elevation is None or self.camera_roll is None:
@@ -396,6 +517,13 @@ class MainWindow(QMainWindow):
             self.viewer.set_heading(update.heading, update.heading_accuracy)
         if update.camera_elevation is not None or update.camera_roll is not None:
             self.viewer.set_attitude(update.camera_elevation, update.camera_roll)
+        self.viewer.set_sky_context(
+            update.true_heading,
+            update.latitude,
+            update.longitude,
+            update.image_timestamp_ns,
+            update.location_accuracy,
+        )
         if update.image is not None and self.viewer.set_camera_image(update.image):
             self._last_image_time = update.image_timestamp_ns
         if update.horizontal_fov is not None:
@@ -413,4 +541,9 @@ class MainWindow(QMainWindow):
         if self._last_image_time is not None:
             image_time = datetime.fromtimestamp(self._last_image_time / 1_000_000_000)
             detail = f" · image {image_time:%H:%M:%S}"
+        if self.viewer.latitude is not None and self.viewer.longitude is not None:
+            gps = f" · GPS {self.viewer.latitude:.4f}, {self.viewer.longitude:.4f}"
+            if self.viewer.location_accuracy is not None:
+                gps += f" ±{self.viewer.location_accuracy:.0f}m"
+            detail += gps
         self.connection_label.setText(f"{state} · Sensor Logger URL: {self._push_url}{detail}")

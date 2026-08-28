@@ -108,6 +108,75 @@ class ParsingTests(unittest.TestCase):
         )
         self.assertEqual(update.heading, 25)
 
+    def test_location_and_true_north_context(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "imageTimestampNs": 1_785_000_000_000_000_000,
+                "payload": [
+                    {
+                        "name": "compass",
+                        "time": 100,
+                        "values": {
+                            "magneticBearing": 359.0,
+                            "trueBearing": 1.5,
+                        },
+                    },
+                    {
+                        "name": "location",
+                        "time": 100,
+                        "values": {
+                            "latitude": 52.3676,
+                            "longitude": 4.9041,
+                            "altitudeMeters": 12.5,
+                            "horizontalAccuracy": 4.0,
+                            "magneticDeclination": 2.5,
+                        },
+                    },
+                ],
+            }
+        )
+        self.assertEqual(update.true_heading, 1.5)
+        self.assertEqual(update.latitude, 52.3676)
+        self.assertEqual(update.longitude, 4.9041)
+        self.assertEqual(update.altitude, 12.5)
+        self.assertEqual(update.location_accuracy, 4.0)
+        self.assertEqual(update.magnetic_declination, 2.5)
+
+    def test_true_heading_can_be_derived_from_declination(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "payload": [
+                    {
+                        "name": "compass",
+                        "values": {"magneticBearing": 359.0},
+                    },
+                    {
+                        "name": "location",
+                        "values": {
+                            "latitude": 52.0,
+                            "longitude": 5.0,
+                            "magneticDeclination": 3.0,
+                        },
+                    },
+                ]
+            }
+        )
+        self.assertEqual(update.true_heading, 2.0)
+
+    def test_invalid_location_is_ignored(self) -> None:
+        update = parse_sensor_logger_message(
+            {
+                "payload": [
+                    {
+                        "name": "location",
+                        "values": {"latitude": 95.0, "longitude": 5.0},
+                    }
+                ]
+            }
+        )
+        self.assertIsNone(update.latitude)
+        self.assertIsNone(update.longitude)
+
     def test_camera_data_uri_and_fov(self) -> None:
         encoded = base64.b64encode(JPEG).decode("ascii")
         update = parse_sensor_logger_message(

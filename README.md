@@ -1,19 +1,21 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's orientation sensors. Version **0.3.0** consists of:
+with the phone's orientation sensors. Version **0.3.1** consists of:
 
 - a Python 3.14 desktop receiver and Qt 6.11.1 GUI;
 - a private, native Android camera-and-orientation sender;
 - one synchronized HTTP update per second over the local network;
 - a perspective-correct magnetic compass tape over the camera image;
-- a camera attitude HUD with a horizon line, pitch ladder, and roll indicator.
+- a camera attitude HUD with a horizon line, pitch ladder, and roll indicator;
+- a labeled overlay for 27 bright stars, the Sun, and the other seven planets.
 
 The Android app uses CameraX and Android's rotation-vector sensor. It calculates
 the azimuth, elevation, and visual roll of the rear camera's viewing direction.
 It also sends the raw device pitch and roll, full orientation quaternion, sensor
-accuracy, and timestamps. The desktop uses the camera-relative values to keep
-the attitude HUD aligned with the image.
+accuracy, GPS position, magnetic declination, and timestamps. The desktop uses
+the camera-relative values to keep the attitude HUD and astronomical labels
+aligned with the image.
 
 No paid application, cloud service, account, or Google Play publication is
 required. The signed APK can be downloaded from GitHub and installed directly
@@ -58,7 +60,7 @@ private-network traffic if the operating-system firewall asks.
 On the phone:
 
 1. Open the [latest DAAO release](https://github.com/TiagoCalvados/DAAO/releases/latest).
-2. Under **Assets**, download `DAAO-Camera-0.3.0.apk`.
+2. Under **Assets**, download `DAAO-Camera-0.3.1.apk`.
 3. Open the download. If Android asks, allow the browser or file manager to
    **Install unknown apps** / **Allow from this source**.
 4. Confirm **Install**, then open **DAAO Camera**.
@@ -109,7 +111,7 @@ updates for the same Android application.
 
 ## Install with ADB
 
-On the Samsung Galaxy S23+:
+On the Android phone (including the Samsung Galaxy A36):
 
 1. Open **Settings → About phone → Software information**.
 2. Tap **Build number** seven times to enable Developer options.
@@ -131,7 +133,7 @@ disabled after installation.
 ## Use DAAO Camera
 
 1. Start the Python desktop application.
-2. Open **DAAO Camera** on the phone and grant camera permission.
+2. Open **DAAO Camera** on the phone and grant camera and location permissions.
 3. Enter the complete URL shown in the desktop status bar.
 4. Confirm that the rear-camera preview and an orientation reading appear.
 5. Tap **Start streaming**.
@@ -142,6 +144,9 @@ shows `HTTP 200`. The URL is remembered for the next run.
 
 The app currently runs in the foreground. Android may stop access to the camera
 when another app takes ownership of it or DAAO Camera is sent to the background.
+For the first run, use the phone outdoors or near a window until Android obtains
+a GPS fix. Camera and attitude streaming still work without location, but the
+astronomical overlay waits until a position is available.
 
 ## Compass calibration
 
@@ -156,11 +161,19 @@ for the Galaxy S23+ Wide / 1x camera. Use the desktop **Horizontal FOV** control
 to calibrate the actual camera crop. **Bearing offset** compensates for a
 measured magnetic or mounting offset.
 
-The reading is relative to magnetic north. Geographic declination, camera
-intrinsics, and star-coordinate transformation belong to a later astronomical
-overlay milestone. Magnetic heading and camera roll are mathematically
-undefined when the camera points exactly vertically; the transmitted quaternion
-remains valid in that orientation.
+The compass tape remains relative to magnetic north. The astronomical overlay
+uses Android's geomagnetic model to correct the camera bearing to true north,
+then combines GPS latitude/longitude with the frame's UTC timestamp. It projects
+the [IAU named-star catalog](https://iauarchive.eso.org/public/themes/naming_stars/)
+and offline [JPL approximate planetary elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
+through the same pinhole-camera model as the HUD. No network ephemeris service is
+used. Sensor calibration and horizontal-FOV calibration will usually dominate
+the remaining label-position error.
+
+Magnetic heading and camera roll are mathematically undefined when the camera
+points exactly vertically; the transmitted quaternion remains valid in that
+orientation. The Sun label is positional information only—never look at the Sun
+through binoculars or a telescope without a purpose-built solar filter.
 
 ## DAAO mobile protocol
 
@@ -170,7 +183,7 @@ The phone sends `multipart/form-data` to `POST /data`. Each request contains:
 - an `image` part with the corresponding JPEG frame.
 
 The JSON uses the protocol identifier `daao-mobile-v1` and includes compatible
-`compass`, `orientation`, and `camera` readings:
+`compass`, `orientation`, `camera`, and `location` readings:
 
 ```json
 {
@@ -185,6 +198,8 @@ The JSON uses the protocol identifier `daao-mobile-v1` and includes compatible
       "time": 1785000000000000000,
       "values": {
         "magneticBearing": 135.0,
+        "trueBearing": 137.5,
+        "magneticDeclination": 2.5,
         "headingAccuracy": 3.0
       }
     },
@@ -206,6 +221,18 @@ The JSON uses the protocol identifier `daao-mobile-v1` and includes compatible
       "name": "camera",
       "time": 1785000000000000000,
       "values": {"horizontalFov": 74.0}
+    },
+    {
+      "name": "location",
+      "time": 1785000000000000000,
+      "values": {
+        "latitude": 52.3676,
+        "longitude": 4.9041,
+        "altitudeMeters": 12.5,
+        "horizontalAccuracy": 4.0,
+        "magneticDeclination": 2.5,
+        "locationTimestampEpochMs": 1785000000000
+      }
     }
   ]
 }
