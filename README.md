@@ -1,7 +1,7 @@
 # DIY Astronomical Attic Observatory
 
 DIY Astronomical Attic Observatory (DAAO) combines images from a phone camera
-with the phone's orientation sensors. Version **0.2.1** consists of:
+with the phone's orientation sensors. Version **0.2.2** consists of:
 
 - a Python 3.14 desktop receiver and Qt 6.11.1 GUI;
 - a private, native Android camera-and-orientation sender;
@@ -12,7 +12,7 @@ The Android app uses CameraX and Android's rotation-vector sensor. It calculates
 the azimuth of the rear camera's viewing direction and also sends elevation,
 pitch, roll, the full orientation quaternion, sensor accuracy, and timestamps.
 The extra pose data is retained in the protocol for future astronomical
-overlays even though version 0.2.1 displays only the camera and compass.
+overlays even though version 0.2.2 displays only the camera and compass.
 
 No paid application, cloud service, account, or Google Play publication is
 required. The signed APK can be downloaded from GitHub and installed directly
@@ -57,7 +57,7 @@ private-network traffic if the operating-system firewall asks.
 On the phone:
 
 1. Open the [latest DAAO release](https://github.com/TiagoCalvados/DAAO/releases/latest).
-2. Under **Assets**, download `DAAO-Camera-0.2.1.apk`.
+2. Under **Assets**, download `DAAO-Camera-0.2.2.apk`.
 3. Open the download. If Android asks, allow the browser or file manager to
    **Install unknown apps** / **Allow from this source**.
 4. Confirm **Install**, then open **DAAO Camera**.
