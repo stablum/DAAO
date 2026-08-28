@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
         serverUrl.setText(
             preferences.getString(
                 "server_url",
-                "http://192.168.178.29:8000/data",
+                "",
             ),
         )
         streamButton.setOnClickListener {
